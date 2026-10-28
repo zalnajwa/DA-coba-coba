@@ -1,0 +1,408 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model BusinessLine {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  accounts     Account[]
+  transactions Transaction[]
+  products     Product[]
+  inventories  Inventory[]
+  supplies     Supply[]
+  wasteLogs    WasteLog[]
+  fixedAssets  FixedAsset[]
+  payables     Payable[]
+  discounts    Discount[]
+}
+
+model Account {
+  id             Int      @id @default(autoincrement())
+  code           String   @unique // 4-digit like '1100'
+  name           String
+  type           String   // ASSET, LIABILITY, EQUITY, REVENUE, COGS, EXPENSE
+  normalBalance  String   // DEBIT, CREDIT
+  parentCode     String?
+  businessLineId Int?
+  isActive       Boolean  @default(true)
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  businessLine     BusinessLine?     @relation(fields: [businessLineId], references: [id], onDelete: SetNull)
+  transactionLines TransactionLine[]
+
+  @@index([businessLineId])
+}
+
+model Transaction {
+  id             Int      @id @default(autoincrement())
+  date           DateTime
+  description    String?
+  type           String   // SALE, PURCHASE, EXPENSE, ADJUSTMENT, CLOSING, WASTE, DEPRECIATION, OTHER
+  source         String   // WEB, WHATSAPP
+  businessLineId Int?
+  shiftId        Int?
+  discountId     Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  businessLine BusinessLine? @relation(fields: [businessLineId], references: [id], onDelete: SetNull)
+  shift        Shift?        @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  discount     Discount?     @relation(fields: [discountId], references: [id], onDelete: SetNull)
+
+  transactionLines   TransactionLine[]
+  inventoryMovements InventoryMovement[]
+  wasteLogs          WasteLog[]
+  depreciations      Depreciation[]
+  payables           Payable[]
+  pettyCashes        PettyCash[]
+
+  @@index([businessLineId])
+  @@index([shiftId])
+  @@index([discountId])
+}
+
+model TransactionLine {
+  id            Int     @id @default(autoincrement())
+  transactionId Int
+  accountId     Int
+  debit         Decimal @default(0)
+  credit        Decimal @default(0)
+  description   String?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([transactionId])
+  @@index([accountId])
+}
+
+model Product {
+  id             Int      @id @default(autoincrement())
+  code           String?
+  name           String
+  description    String?
+  businessLineId Int
+  sellingPrice   Decimal
+  costPrice      Decimal
+  unit           String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  businessLine BusinessLine @relation(fields: [businessLineId], references: [id], onDelete: Cascade)
+  inventory    Inventory?
+  discounts    Discount[]
+
+  @@index([businessLineId])
+}
+
+model Inventory {
+  id             Int      @id @default(autoincrement())
+  productId      Int      @unique
+  businessLineId Int
+  quantity       Decimal
+  unit           String?
+  minimumStock   Decimal
+  costPrice      Decimal
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  product      Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  businessLine BusinessLine        @relation(fields: [businessLineId], references: [id], onDelete: Cascade)
+  movements    InventoryMovement[]
+  seblakBOMs   SeblakBOM[]
+
+  @@index([businessLineId])
+}
+
+model InventoryMovement {
+  id            Int      @id @default(autoincrement())
+  inventoryId   Int
+  transactionId Int?
+  type          String   // IN, OUT, ADJUSTMENT, WASTE
+  quantity      Decimal
+  costPrice     Decimal
+  description   String?
+  date          DateTime
+  createdAt     DateTime @default(now())
+
+  inventory   Inventory    @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryId])
+  @@index([transactionId])
+}
+
+model Supply {
+  id             Int      @id @default(autoincrement())
+  name           String
+  businessLineId Int
+  quantity       Decimal
+  unit           String?
+  costPrice      Decimal
+  minimumStock   Decimal
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  businessLine BusinessLine @relation(fields: [businessLineId], references: [id], onDelete: Cascade)
+
+  @@index([businessLineId])
+}
+
+model SeblakTopping {
+  id           Int      @id @default(autoincrement())
+  name         String
+  sellingPrice Decimal
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  seblakBOMs SeblakBOM[]
+}
+
+model SeblakBOM {
+  id           Int      @id @default(autoincrement())
+  toppingId    Int
+  inventoryId  Int
+  quantityUsed Decimal
+  unit         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  topping   SeblakTopping @relation(fields: [toppingId], references: [id], onDelete: Cascade)
+  inventory Inventory     @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+
+  @@index([toppingId])
+  @@index([inventoryId])
+}
+
+model WasteLog {
+  id             Int      @id @default(autoincrement())
+  date           DateTime
+  businessLineId Int
+  transactionId  Int?
+  items          String   // JSON string of array: {name, quantity, unit, estimatedCost}
+  totalLoss      Decimal
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  businessLine BusinessLine @relation(fields: [businessLineId], references: [id], onDelete: Cascade)
+  transaction  Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([businessLineId])
+  @@index([transactionId])
+}
+
+model FixedAsset {
+  id                      Int      @id @default(autoincrement())
+  name                    String
+  code                    String?
+  businessLineId          Int
+  purchaseDate            DateTime
+  purchaseCost            Decimal
+  usefulLifeMonths        Int
+  salvageValue            Decimal  @default(0)
+  accumulatedDepreciation Decimal  @default(0)
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  businessLine  BusinessLine   @relation(fields: [businessLineId], references: [id], onDelete: Cascade)
+  depreciations Depreciation[]
+
+  @@index([businessLineId])
+}
+
+model Depreciation {
+  id               Int      @id @default(autoincrement())
+  fixedAssetId     Int
+  transactionId    Int?
+  date             DateTime
+  amount           Decimal
+  accumulatedTotal Decimal
+  createdAt        DateTime @default(now())
+
+  fixedAsset  FixedAsset   @relation(fields: [fixedAssetId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([fixedAssetId])
+  @@index([transactionId])
+}
+
+model Payable {
+  id             Int      @id @default(autoincrement())
+  type           String   // PAYABLE, RECEIVABLE
+  contactName    String
+  description    String?
+  amount         Decimal
+  paidAmount     Decimal  @default(0)
+  dueDate        DateTime
+  status         String   // UNPAID, PARTIAL, PAID
+  transactionId  Int?
+  businessLineId Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  transaction  Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  businessLine BusinessLine? @relation(fields: [businessLineId], references: [id], onDelete: SetNull)
+
+  @@index([transactionId])
+  @@index([businessLineId])
+}
+
+model PettyCash {
+  id            Int      @id @default(autoincrement())
+  date          DateTime
+  description   String?
+  amount        Decimal
+  type          String   // REPLENISH, EXPENSE
+  transactionId Int?
+  createdAt     DateTime @default(now())
+
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([transactionId])
+}
+
+model CashReconciliation {
+  id              Int      @id @default(autoincrement())
+  date            DateTime
+  systemBalance   Decimal
+  physicalBalance Decimal
+  difference      Decimal
+  notes           String?
+  shiftId         Int?
+  createdAt       DateTime @default(now())
+
+  shift Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([shiftId])
+}
+
+model Shift {
+  id           Int      @id @default(autoincrement())
+  openedAt     DateTime
+  closedAt     DateTime?
+  openingCash  Decimal
+  closingCash  Decimal?
+  expectedCash Decimal?
+  difference   Decimal?
+  status       String   // OPEN, CLOSED
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  transactions    Transaction[]
+  reconciliations CashReconciliation[]
+}
+
+model Discount {
+  id              Int      @id @default(autoincrement())
+  name            String
+  type            String   // PERCENTAGE, FIXED, BUY_X_GET_Y
+  value           Decimal
+  minimumPurchase Decimal?
+  buyQuantity     Int?
+  getQuantity     Int?
+  businessLineId  Int?
+  productId       Int?
+  startDate       DateTime
+  endDate         DateTime
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  businessLine BusinessLine? @relation(fields: [businessLineId], references: [id], onDelete: Cascade)
+  product      Product?      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([businessLineId])
+  @@index([productId])
+}
+
+model TaxRecord {
+  id                Int       @id @default(autoincrement())
+  year              Int
+  month             Int
+  grossRevenue      Decimal
+  cumulativeRevenue Decimal
+  taxableAmount     Decimal
+  taxAmount         Decimal
+  isPaid            Boolean   @default(false)
+  paidDate          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([year, month])
+}
+
+model PeriodClosing {
+  id                      Int      @id @default(autoincrement())
+  period                  String   // like '2026-09'
+  closedAt                DateTime
+  openingRetainedEarnings Decimal
+  netIncome               Decimal
+  closingRetainedEarnings Decimal
+  notes                   String?
+  createdAt               DateTime @default(now())
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserAuth {
+  id        Int      @id @default(autoincrement())
+  pin       String   // hashed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String
+  tableName String
+  recordId  String
+  oldValue  String?  // JSON string
+  newValue  String?  // JSON string
+  source    String   // WEB, WHATSAPP, SYSTEM
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model AiChatHistory {
+  id        Int      @id @default(autoincrement())
+  role      String   // USER, ASSISTANT
+  content   String
+  source    String   // WEB, WHATSAPP
+  createdAt DateTime @default(now())
+}
+
+model BackupHistory {
+  id        Int      @id @default(autoincrement())
+  filename  String
+  filePath  String
+  sizeBytes Int
+  type      String   // MANUAL, AUTO
+  createdAt DateTime @default(now())
+}
